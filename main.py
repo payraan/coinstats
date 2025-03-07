@@ -24,6 +24,9 @@ app = FastAPI(
 
 BASE_URL = "https://openapiv1.coinstats.app"
 
+# بلاکچین‌هایی که به connectionId نیاز دارند
+REQUIRES_CONNECTION_ID = ['solana', 'tron', 'ripple']
+
 # نگهداری آمار درخواست‌ها
 request_count = 0
 last_reset = time.time()
@@ -65,7 +68,7 @@ def home():
         "monthly_limit": "1,000,000 credits",
         "rate_limit": "5 requests per second",
         "status": "Free API plan with 1,000,000 credits per month",
-        "notes": "Some endpoints have been modified to work with CoinStats API limitations"
+        "notes": "Some blockchains require a connectionId parameter for wallet operations (e.g., solana, tron)"
     }
 
 # Helper function to send requests to CoinStats API
@@ -80,6 +83,15 @@ async def fetch_from_coinstats(endpoint: str, params: Optional[Dict[str, Any]] =
     # Remove 'skip' parameter from problematic endpoints
     if params and 'skip' in params and endpoint in ['coins', 'news', 'wallet/transactions']:
         del params['skip']
+    
+    # Add default connectionId for blockchains that require it
+    if (endpoint in ['wallet/balance', 'wallet/transactions'] and 
+        params and 'blockchain' in params and 
+        params['blockchain'].lower() in REQUIRES_CONNECTION_ID and 
+        'connectionId' not in params):
+        # Use a default connection ID
+        params['connectionId'] = 'default_connection'
+        print(f"⚠️ Using default connectionId for {params['blockchain']}. This may not work for all operations.")
     
     print(f"🔍 Sending {method} request to: {url}")
     if params:
@@ -101,7 +113,13 @@ async def fetch_from_coinstats(endpoint: str, params: Optional[Dict[str, Any]] =
             return response.json()
         elif response.status_code == 400:
             print(f"❌ Bad Request: {response.text}")
-            raise HTTPException(status_code=400, detail=f"❌ Bad Request: {response.text}")
+            if "connectionId should not be empty" in response.text and params and 'blockchain' in params:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"❌ The blockchain '{params['blockchain']}' requires a valid connectionId. Use /wallet/balances endpoint instead for this blockchain."
+                )
+            else:
+                raise HTTPException(status_code=400, detail=f"❌ Bad Request: {response.text}")
         elif response.status_code == 401:
             print(f"❌ Unauthorized: {response.text}")
             raise HTTPException(status_code=401, detail="❌ Invalid API key or unauthorized access")
@@ -328,10 +346,12 @@ async def get_wallet_blockchains():
 async def get_wallet_balance(
     address: str = Query(..., description="Wallet address"),
     blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
-    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for solana, tron)")
 ):
     """
     Get balance for a specific wallet address
+    Note: Some blockchains like solana and tron require a valid connectionId
+    For these blockchains, consider using /wallet/balances endpoint instead
     """
     params = {
         "address": address,
@@ -343,7 +363,7 @@ async def get_wallet_balance(
     
     return await fetch_from_coinstats("wallet/balance", params)
 
-# 1️⃣7️⃣ Get wallet balances
+# 1️⃣7️⃣ Get wallet balances (recommended for all blockchains)
 @app.get("/wallet/balances")
 async def get_wallet_balances(
     address: str = Query(..., description="Wallet address"),
@@ -351,6 +371,7 @@ async def get_wallet_balances(
 ):
     """
     Get balances for a wallet across multiple networks
+    This endpoint is recommended for all blockchains, especially those requiring connectionId
     """
     params = {
         "address": address,
@@ -365,11 +386,11 @@ async def get_wallet_transactions(
     address: str = Query(..., description="Wallet address"),
     blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
     limit: Optional[int] = Query(20, description="Number of items to return"),
-    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for solana, tron)")
 ):
     """
     Get transaction history for a specific wallet
-    Note: CoinStats API doesn't support 'skip' parameter for transactions
+    Note: Some blockchains like solana and tron require a valid connectionId
     """
     params = {
         "address": address,
@@ -387,7 +408,7 @@ async def get_wallet_transactions(
 async def update_wallet_transactions(
     address: str = Query(..., description="Wallet address"),
     blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
-    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for solana, tron)")
 ):
     """
     Update transaction data for a specific wallet
