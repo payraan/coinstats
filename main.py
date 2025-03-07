@@ -64,7 +64,8 @@ def home():
         "requests_this_month": request_count,
         "monthly_limit": "1,000,000 credits",
         "rate_limit": "5 requests per second",
-        "status": "Free API plan with 1,000,000 credits per month"
+        "status": "Free API plan with 1,000,000 credits per month",
+        "notes": "Some endpoints have been modified to work with CoinStats API limitations"
     }
 
 # Helper function to send requests to CoinStats API
@@ -75,6 +76,10 @@ async def fetch_from_coinstats(endpoint: str, params: Optional[Dict[str, Any]] =
         "accept": "application/json",
         "X-API-KEY": API_KEY
     }
+    
+    # Remove 'skip' parameter from problematic endpoints
+    if params and 'skip' in params and endpoint in ['coins', 'news', 'wallet/transactions']:
+        del params['skip']
     
     print(f"🔍 Sending {method} request to: {url}")
     if params:
@@ -113,7 +118,6 @@ async def fetch_from_coinstats(endpoint: str, params: Optional[Dict[str, Any]] =
 # 1️⃣ Get all coins
 @app.get("/coins")
 async def get_coins(
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
     limit: Optional[int] = Query(20, description="Number of items to return"),
     currency: Optional[str] = Query("USD", description="Currency for prices")
 ):
@@ -121,7 +125,6 @@ async def get_coins(
     Get a list of all cryptocurrencies with market data
     """
     params = {
-        "skip": skip,
         "limit": limit,
         "currency": currency
     }
@@ -203,14 +206,12 @@ async def get_exchange_price(
 @app.get("/tickers/exchanges")
 async def get_exchange_tickers(
     exchange: Optional[str] = Query(None, description="Exchange ID (e.g., binance)"),
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
     limit: Optional[int] = Query(20, description="Number of items to return")
 ):
     """
     Get ticker data from exchanges
     """
     params = {
-        "skip": skip,
         "limit": limit
     }
     
@@ -224,14 +225,12 @@ async def get_exchange_tickers(
 async def get_market_tickers(
     pair: Optional[str] = Query(None, description="Trading pair (e.g., BTC-USDT)"),
     exchange: Optional[str] = Query(None, description="Exchange ID (e.g., binance)"),
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
     limit: Optional[int] = Query(20, description="Number of items to return")
 ):
     """
     Get market ticker data
     """
     params = {
-        "skip": skip,
         "limit": limit
     }
     
@@ -277,15 +276,14 @@ async def get_news_sources():
 # 1️⃣2️⃣ Get news
 @app.get("/news")
 async def get_news(
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
     limit: Optional[int] = Query(20, description="Number of items to return"),
     filter: Optional[str] = Query(None, description="Filter news by source, coin, or category")
 ):
     """
     Get cryptocurrency news articles
+    Note: CoinStats API doesn't support 'skip' parameter for news
     """
     params = {
-        "skip": skip,
         "limit": limit
     }
     
@@ -298,14 +296,12 @@ async def get_news(
 @app.get("/news/type/{type}")
 async def get_news_by_type(
     type: str,
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
     limit: Optional[int] = Query(20, description="Number of items to return")
 ):
     """
     Get news articles by type (e.g., handpicked)
     """
     params = {
-        "skip": skip,
         "limit": limit
     }
     
@@ -331,7 +327,8 @@ async def get_wallet_blockchains():
 @app.get("/wallet/balance")
 async def get_wallet_balance(
     address: str = Query(..., description="Wallet address"),
-    blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)")
+    blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
 ):
     """
     Get balance for a specific wallet address
@@ -340,6 +337,9 @@ async def get_wallet_balance(
         "address": address,
         "blockchain": blockchain
     }
+    
+    if connection_id:
+        params["connectionId"] = connection_id
     
     return await fetch_from_coinstats("wallet/balance", params)
 
@@ -364,18 +364,21 @@ async def get_wallet_balances(
 async def get_wallet_transactions(
     address: str = Query(..., description="Wallet address"),
     blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
-    skip: Optional[int] = Query(0, description="Number of items to skip"),
-    limit: Optional[int] = Query(20, description="Number of items to return")
+    limit: Optional[int] = Query(20, description="Number of items to return"),
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
 ):
     """
     Get transaction history for a specific wallet
+    Note: CoinStats API doesn't support 'skip' parameter for transactions
     """
     params = {
         "address": address,
         "blockchain": blockchain,
-        "skip": skip,
         "limit": limit
     }
+    
+    if connection_id:
+        params["connectionId"] = connection_id
     
     return await fetch_from_coinstats("wallet/transactions", params)
 
@@ -383,7 +386,8 @@ async def get_wallet_transactions(
 @app.patch("/wallet/transactions")
 async def update_wallet_transactions(
     address: str = Query(..., description="Wallet address"),
-    blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)")
+    blockchain: str = Query(..., description="Blockchain (e.g., ethereum, bitcoin)"),
+    connection_id: Optional[str] = Query(None, description="Connection ID (required for some blockchains)")
 ):
     """
     Update transaction data for a specific wallet
@@ -392,6 +396,9 @@ async def update_wallet_transactions(
         "address": address,
         "blockchain": blockchain
     }
+    
+    if connection_id:
+        params["connectionId"] = connection_id
     
     return await fetch_from_coinstats("wallet/transactions", params, method="PATCH")
 
